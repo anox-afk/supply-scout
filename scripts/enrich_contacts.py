@@ -460,7 +460,8 @@ def main():
             if not r.get("phone"):
                 r["phone"], r["phone_source"] = best[0], best[1]
             r["phone_confidence"] = best[2] if r["phone"] == best[0] else next((c for p, s, c in uniq if p == norm_phone(r["phone"])), best[2])
-            r["phones_all"] = "; ".join(f"{p} ({s}, {c})" for p, s, c in uniq[:6])
+            # list EVERY number found (multiples included), best-confidence first, nothing dropped
+            r["phones_all"] = " ; ".join(f"{p} ({s}, {c})" for p, s, c in uniq)
             r["whatsapp_link"] = "https://wa.me/" + re.sub(r"\D", "", norm_phone(r["phone"]))
             stats["phone"] += 1
         if emails and not r["email"]:
