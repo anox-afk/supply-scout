@@ -43,6 +43,13 @@ Before delivering, every target was re-checked against Unpaqd's own listings. Wh
 - **Platform coordinates can be placeholders.** Six Unpaqd listings sat on the exact city-centre point, so location proximity proved nothing.
 - Result: 67 → **66 targets**. All 10 call-ready operators were confirmed not on Unpaqd by brand, title, host and (where usable) location. One borderline flag (Seven Mirror vs a resort room called "Gold Palm Ivory") was opened by hand and confirmed as a different property.
 
+## Step 5c — Scripted enrichment at scale (`enrich_contacts.py`)
+Steps 3 and 5 above were done by hand with web search for 17 operators. To cover a full list, the same method was turned into a script:
+- **Instagram pages can be opened for free.** Fetching `instagram.com/<handle>/` with a link-preview user agent (`facebookexternalhit/1.1`) returns the page with a `<meta name="description">` tag that contains the follower count, post count and the **full bio text**, including the phone number. No login, no API key. It returned the same numbers we had found by hand for the operators tested.
+- **The bio is the main source**, the directories and the brand's own website are the backup, and Airbnb itself supplies host details (about text, co-hosts, years hosting, response rate).
+- **Confidence labels** (verified / high / medium / low) say how far to trust each number, because wrong-entity matches are the main risk. In testing, one Instagram profile that looked like a match (Palette by D1) turned out to be an art gallery; reading the bio exposed it.
+- **Web search is the bottleneck**: Firecrawl's free plan allows only a few searches a minute, so finding Instagram handles for about 200 hosts takes 30 to 60 minutes. DuckDuckGo's HTML search was tried as a free alternative and blocks automated requests.
+
 ## Step 6 — Deliver the call sheet
 Wrote the phones into `targets.csv` (columns: host, listings, price band, phone, source, instagram, decision_maker, note, contacted, outcome). The result was a 10-operator Jaipur call sheet ready to dial, inside one afternoon, for under $2 of scraping.
 
