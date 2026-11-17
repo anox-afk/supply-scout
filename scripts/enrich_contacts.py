@@ -152,25 +152,49 @@ class Firecrawl:
 
 
 # ---------- stage B: find the Instagram profile ----------
+STAY_WORDS = r"villa|stay|homestay|rental|airbnb|bnb|hospitality|property|boutique|resort|apartment|getaway|retreat"
+
 def discover_ig(row, fc):
+    """One search finds the Instagram profile AND harvests phones from the result snippets
+    (bios and POST CAPTIONS), because operators often put the number in a caption, not the bio."""
     name = search_name(row)
     city = row.get("city") or ""
     want = toks(name) | toks(row.get("host"))
+    results = fc.search(f"{name} {city} instagram")
     best = None
-    for r in fc.search(f"{name} {city} instagram"):
+    for r in results:
         m = PROFILE_RE.match((r.get("url") or "").split("?")[0])
         if not m or m.group(1).lower() in IG_BAD:
             continue
         handle = m.group(1)
         text = ((r.get("title") or "") + " " + (r.get("description") or "")).lower()
         hit = [t for t in want if t in text or t in handle.lower().replace(".", "").replace("_", "")]
-        ctx = (city.lower() in text) or bool(re.search(r"villa|stay|homestay|rental|airbnb|bnb|hospitality|property|boutique|resort|apartment", text))
+        ctx = (city.lower() in text) or bool(re.search(STAY_WORDS, text))
         score = len(hit) * 2 + (1 if ctx else 0)
         if best is None or score > best[0]:
             best = (score, handle, bool(hit), ctx)
-    if not best:
-        return {"link": "", "match": "not found"}
-    return {"link": f"https://www.instagram.com/{best[1]}/", "match": "high" if (best[2] and best[3]) else "low"}
+    link = "https://www.instagram.com/%s/" % best[1] if best else ""
+    match = ("high" if (best[2] and best[3]) else "low") if best else "not found"
+    bh = best[1].lower() if best else ""
+    # harvest caption/bio phones from snippets that belong to this brand
+    agg = {}
+    for r in results:
+        u = (r.get("url") or "").lower()
+        text = (r.get("title") or "") + " " + (r.get("description") or "")
+        low = text.lower()
+        same_handle = bool(bh) and (("instagram.com/" + bh in u) or ("@" + bh in low))
+        on_brand = same_handle or any(t in low or t in u for t in want)
+        if not on_brand:
+            continue
+        is_post = bool(re.search(r"instagram\.com/(?:p|reel)/", u))
+        for p in phones_in(text):
+            conf = "high" if same_handle else "medium"
+            src = "instagram_caption" if is_post else "instagram_snippet"
+            cur = agg.get(p)
+            if cur is None or RANK[conf] > RANK[cur[1]]:
+                agg[p] = (src, conf)
+    return {"link": link, "match": match,
+            "snippet_phones": [[p, s, c] for p, (s, c) in agg.items()]}
 
 
 # ---------- stage C: open the Instagram page, read the bio ----------
@@ -227,9 +251,10 @@ def directory_search(row, fc):
         d = domain_of(url)
         text = ((r.get("title") or "") + " " + (r.get("description") or "")).lower()
         about_brand = any(t in text or t in d for t in want)
-        if about_brand and (city.lower() in text or re.search(r"villa|stay|homestay|rental|bnb|hospitality|resort", text)):
+        if about_brand and (city.lower() in text or re.search(STAY_WORDS, text)):
+            is_post = bool(re.search(r"instagram\.com/(?:p|reel)/", url))
             for p in phones_in(text):
-                src = "directory:" + (d.split(".")[0] if d else "web")
+                src = "instagram_caption" if is_post else ("directory:" + (d.split(".")[0] if d else "web"))
                 phones.append((p, src, "medium"))
         if d and not any(s in d for s in SKIP_DOMAINS) and about_brand:
             site_candidates.append(d)
@@ -409,6 +434,13 @@ def main():
             cands += [(norm_phone(w), "instagram_bio_whatsapp", conf) for w in ig.get("wa", [])]
         elif ig:
             stats["ig_err"] += 1
+        # caption / snippet phones harvested free during the discovery search
+        disc = cache["discover"].get(key_of(r)) or {}
+        for item in disc.get("snippet_phones", []):
+            p, src, conf = (item + ["instagram_caption", "medium"])[:3] if isinstance(item, list) else (item, "instagram_caption", "medium")
+            if r["instagram_match"] == "low":
+                conf = "low"
+            cands.append((p, src, conf))
         emails = list(ig.get("emails") or []) if ig else []
         websites = list(ig.get("websites") or []) if ig else []
         for p, src, conf in dr.get("phones", []):
